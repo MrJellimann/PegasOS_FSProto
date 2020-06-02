@@ -30,6 +30,11 @@ unsigned int filenameLength = DEFAULT_FILENAME_LENGTH;
 unsigned int usedClusters = 0;
 unsigned int availableClusters = 0;
 
+unsigned int bootSectorSize = 1;
+unsigned int fatSectorSize = 0;
+unsigned int dftSectorSize = 0;
+unsigned int dataSectorSize = 0;
+
 // FAT STRUCTURES
 typedef struct FileAllocation
 {
@@ -39,6 +44,7 @@ typedef struct FileAllocation
 } FileAllocation;
 
 // FAT VARIABLES
+unsigned int fatSectorStart = 0; // Starting cluster number
 FileAllocation* fat;
 
 // DIRECTORY STRUCTURES
@@ -50,7 +56,12 @@ typedef struct DirectoryFile
 } DirectoryFile;
 
 // DIRECTORY VARIABLES
+unsigned int drtSectorStart = 0; // Starting cluster number
 DirectoryFile* dft;
+
+// DATA STRUCTURES
+
+// DATA VARIABLES
 
 // Testing variables
 int writePositions[12] = { 10,  20,  30,  40,  50,  99,  100, 101, 103, 70,  80,  120 };
@@ -90,18 +101,31 @@ int clusterPos(int _clusterNum)
     return (_clusterNum * clusterSize);
 }
 
+// Manually set the read/write position in the mounted drive
+// Also updates the global filePosition.
+void setDrivePosition(int _clusterNum, int _offset)
+{
+    if (mount == NULL)
+    {
+        printf("Error 100: no mounted drive to move read/write head on.\n");
+        errorCode = 100;
+        return;
+    }
+
+    fseek(mount, clusterPos(_clusterNum) + _offset, SEEK_SET);
+    fgetpos(mount, &filePosition);
+}
+
 // Writes a stream of bytes from the desired location onto the disk at a specific location.
 // Also updates the global filePosition.
 void writeBytestream(void* _bStream, int _numBytes, int _startCluster, int _offset)
 {
-    // printf("Debugging:\n");
-    // printf("_bStream    -> %p\n", _bStream);
-    // printf("single char -> %c\n", _bStream);
-    // printf("1st char    -> %c\n", *(char *)_bStream);
-    // printf("2nd char    -> %c\n", *(char *)(_bStream + 1));
-    // printf("3nd char    -> %c\n", *(char *)(_bStream + 2));
-    // printf("4nd char    -> %c\n", *(char *)(_bStream + 3));
-    // printf("stream addr -> %p\n", &_bStream);
+    if (mount == NULL)
+    {
+        printf("Error 50: no mounted drive to write bytestream to.\n");
+        errorCode = 50;
+        return;
+    }
 
     fseek(mount, clusterPos(_startCluster) + _offset, SEEK_SET);
 
@@ -109,7 +133,9 @@ void writeBytestream(void* _bStream, int _numBytes, int _startCluster, int _offs
 
     if (_success != _numBytes)
     {
-        printf("Error occured in write\n");
+        printf("Error 51: failed to write correct number of bytes from bytestream.\n");
+        errorCode = 52;
+        return;
     }
 
     fgetpos(mount, &filePosition);
@@ -117,13 +143,23 @@ void writeBytestream(void* _bStream, int _numBytes, int _startCluster, int _offs
 
 // Writes a stream of bytes to the current location of the filePosition
 // Also updates the global filePosition
+// Must be careful with this, as it will be very easy to overwrite information
+// if the read/write location is not aligned correctly.
 void writeBytestreamCurrent(void* _bStream, int _numBytes)
 {
+    if (mount == NULL)
+    {
+        printf("Error 52: no mounted drive to write bytestream to.\n");
+        errorCode = 52;
+        return;
+    }
     int _success = fwrite(_bStream, 1, _numBytes, mount);
 
     if (_success != _numBytes)
     {
-        printf("Error occured in current write\n");
+        printf("Error 53: failed to write correct number of bytes from bytestream.\n");
+        errorCode = 53;
+        return;
     }
 
     fgetpos(mount, &filePosition);
@@ -133,27 +169,47 @@ void writeBytestreamCurrent(void* _bStream, int _numBytes)
 // Also updates the global filePosition.
 void readBytestream(void* _dest, int _numBytes, int _startCluster, int _offset)
 {
+    if (mount == NULL)
+    {
+        printf("Error 54: no mounted drive to read bytestream from.\n");
+        errorCode = 54;
+        return;
+    }
+
     fseek(mount, clusterPos(_startCluster) + _offset, SEEK_SET);
 
     int _success = fread(_dest, 1, _numBytes, mount);
 
     if (_success != _numBytes)
     {
-        printf("Error occured in read\n");
+        printf("Error 55: failed to read correct number of bytes from drive.\n");
+        errorCode = 55;
+        return;
     }
 
     fgetpos(mount, &filePosition);
 }
 
 // Reads a stream of bytes from the current location of the filePosition into a destination.
-// Also updates the global filePosition
+// Also updates the global filePosition.
+// Must be careful with this, as it will be very easy to overwrite information
+// if the read/write location is not aligned correctly.
 void readBytestreamCurrent(void* _dest, int _numBytes)
 {
+    if (mount == NULL)
+    {
+        printf("Error 56: no mounted drive to read bytestream from.\n");
+        errorCode = 56;
+        return;
+    }
+
     int _success = fread(_dest, 1, _numBytes, mount);
 
     if (_success != _numBytes)
     {
-        printf("Error occured in current read\n");
+        printf("Error 57: failed to read correct number of bytes from drive.\n");
+        errorCode = 57;
+        return;
     }
 
     fgetpos(mount, &filePosition);
@@ -161,6 +217,13 @@ void readBytestreamCurrent(void* _dest, int _numBytes)
 
 void createBootSector()
 {
+    if (mount == NULL)
+    {
+        printf("Error 200: no mounted drive to format.\n");
+        errorCode = 200;
+        return;
+    }
+
     // First, get the length of the drive
     driveSize = 0;
 
@@ -177,16 +240,32 @@ void createBootSector()
     clusterSize = DEFAULT_CLUSTER_SIZE;
 
 
+    // Debug Printout
+    printf("Debugging:\n");
+    printf("Calculated Drive Size: %lu bytes\n", driveSize);
+    printf("Drive Cluster Size: %u bytes\n", clusterSize);
 }
 
 void createFATSector()
 {
-    // blah
+    if (mount == NULL)
+    {
+        printf("Error 201: no mounted drive to format.\n");
+        errorCode = 201;
+        return;
+    }
+
+    // Initialize FAT Sector
 }
 
 void createDFTSector()
 {
-    // blah
+    if (mount == NULL)
+    {
+        printf("Error 202: no mounted drive to format.\n");
+        errorCode = 202;
+        return;
+    }
 }
 
 void formatDrive()
@@ -210,6 +289,8 @@ int main(void)
 
     printf("DirectoryFile f1: %128s %i %i\n", f1.fName, f1.cStart, f1.metadata);
     printf("DirectoryFile f2: %128s %i %i\n", f2.fName, f2.cStart, f2.metadata);
+
+    formatDrive();
 
     fclose(mount);
 }
