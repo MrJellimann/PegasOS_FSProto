@@ -5,6 +5,11 @@
 #define DEFAULT_DRIVE_LETTER 'A'
 #define DEFAULT_FILENAME_LENGTH 32
 
+#define DEFAULT_DFT_SIZE 65536
+#define DEFAULT_FAT_SIZE 375689
+
+#define DEFAULT_RESERVE_SIZE 4
+
 // TODO: Move this into .h file
 #ifndef bool
     #define bool _Bool
@@ -13,7 +18,9 @@
 #endif
 
 // MOUNT VARIABLES
-char* mountPath = "default.disk";
+// char* mountPath = "default.disk";
+// char* mountPath = "sample.disk";
+char* mountPath = "D:\\";
 FILE* mount;
 fpos_t filePosition;
 
@@ -30,7 +37,7 @@ unsigned int filenameLength = DEFAULT_FILENAME_LENGTH;
 unsigned int usedClusters = 0;
 unsigned int availableClusters = 0;
 
-unsigned int bootSectorSize = 1;
+unsigned int bootSectorSize = DEFAULT_RESERVE_SIZE;
 unsigned int fatSectorSize = 0;
 unsigned int dftSectorSize = 0;
 unsigned int dataSectorSize = 0;
@@ -39,29 +46,41 @@ unsigned int dataSectorSize = 0;
 typedef struct FileAllocation
 {
     unsigned int cNum; // Cluster number
-    bool used;
+    short used;
     unsigned int next; // Basically, the offset from the drive start
+
+    // Size in bytes: 4 + 2 + 4 = 10
 } FileAllocation;
 
 // FAT VARIABLES
 unsigned int fatSectorStart = 0; // Starting cluster number
-FileAllocation* fat;
+// TODO:    Make a calculation based on drive size and make
+//          the DFT/FAT dynamic
+// FileAllocation* fat;
+FileAllocation fat[DEFAULT_FAT_SIZE] = { 0, 0, 0 };
 
 // DIRECTORY STRUCTURES
 typedef struct DirectoryFile
 {
-    char fName[128];
+    char fName[DEFAULT_FILENAME_LENGTH];
     unsigned int cStart;
     unsigned int metadata;
+
+    // Size in bytes: 32 + 4 + 4 = 40
+    // For now: 65536 DFT entries, 2^16
 } DirectoryFile;
 
 // DIRECTORY VARIABLES
 unsigned int drtSectorStart = 0; // Starting cluster number
-DirectoryFile* dft;
+// TODO:    Make a calculation based on drive size and
+//          make the DFT/FAT dynamic
+// DirectoryFile* dft;
+DirectoryFile dft[DEFAULT_DFT_SIZE] = { "", 0, 0 };
 
 // DATA STRUCTURES
 
 // DATA VARIABLES
+unsigned int totalClusters = DEFAULT_FAT_SIZE;
 
 // Testing variables
 int writePositions[12] = { 10,  20,  30,  40,  50,  99,  100, 101, 103, 70,  80,  120 };
@@ -99,6 +118,19 @@ void mountDefault()
 int clusterPos(int _clusterNum)
 {
     return (_clusterNum * clusterSize);
+}
+
+// Quick jumps to start and end of mounted drive
+void gotoDriveStart()
+{
+    fseek(mount, 0, SEEK_SET);
+    fgetpos(mount, &filePosition);
+}
+
+void gotoDriveEnd()
+{
+    fseek(mount, 0, SEEK_END);
+    fgetpos(mount, &filePosition);
 }
 
 // Manually set the read/write position in the mounted drive
@@ -224,26 +256,67 @@ void createBootSector()
         return;
     }
 
+    gotoDriveStart();
+
     // First, get the length of the drive
     driveSize = 0;
 
-    while (!feof(mount))
+    do
     {
         driveSize++;
         fgetc(mount);
     }
+    while (!feof(mount));
 
     rewind(mount);
     fgetpos(mount, &filePosition); // Update filePosition
 
-    // Next, set the cluster size information
-    clusterSize = DEFAULT_CLUSTER_SIZE;
+    // Also, set the drive letter
+    // TODO: Allow user to format the drive
+    driveLetter = DEFAULT_DRIVE_LETTER;
 
+    // Next, set the cluster size information and filename length
+    clusterSize = DEFAULT_CLUSTER_SIZE;
+    filenameLength = DEFAULT_FILENAME_LENGTH;
+
+    // Now, we need to calculate how much space we need for everything
+    totalClusters = driveSize / clusterSize;
+    availableClusters = totalClusters;
+
+    availableClusters -= bootSectorSize;
+    usedClusters += bootSectorSize;
+
+    // DFT Calculations
+    unsigned int _dftPerBlock = clusterSize / sizeof(DirectoryFile);
+    unsigned int _calculatedDft = availableClusters / _dftPerBlock;
+
+    availableClusters -= _calculatedDft;
+    usedClusters += _calculatedDft;
+    dftSectorSize = _calculatedDft;
+
+    // FAT Calculations
+    unsigned int _fatPerBlock = clusterSize / sizeof(FileAllocation);
+    unsigned int _calculatedFat = availableClusters / _fatPerBlock;
+
+    availableClusters -= _calculatedFat;
+    usedClusters += _calculatedFat;
+    fatSectorSize = _calculatedFat;
+
+    // Send rest to data
+    dataSectorSize = availableClusters;
 
     // Debug Printout
     printf("Debugging:\n");
     printf("Calculated Drive Size: %lu bytes\n", driveSize);
-    printf("Drive Cluster Size: %u bytes\n", clusterSize);
+    printf("Drive Cluster Size:    %u bytes\n", clusterSize);
+    printf("Total Cluster Count:   %u\n", totalClusters);
+    printf("Used Clusters:         %u\n", usedClusters);
+    printf("Available Clusters:    %u\n", availableClusters);
+    printf("\n");
+    printf("Bootstrap Clusters:    %u\t\t\t%.2f%%\n", bootSectorSize, (double)bootSectorSize / totalClusters * 100);
+    printf("DFT Clusters:          %u\t\t\t%.2f%%\n", dftSectorSize, (double)dftSectorSize / totalClusters * 100);
+    printf("FAT Clusters:          %u\t\t\t%.2f%%\n", fatSectorSize, (double)fatSectorSize / totalClusters * 100);
+    printf("DATA Clusters:         %u\t\t\t%.2f%%\n", dataSectorSize, (double)dataSectorSize / totalClusters * 100);
 }
 
 void createFATSector()

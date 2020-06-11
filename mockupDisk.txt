@@ -13,3 +13,13 @@ DATA_SECTOR_SIZE            ???                             8 bytes
 
 
 TOTAL SIZE                                                  57 bytes
+
+
+How many files do we want at maximum?
+How big do we want a file at maximum/can we support?
+
+NTFS
+    -> maximum files on disk = 4,294,967,296 => 2^32
+    -> maximum files in single folder = 4294967295 => 2^32
+    -> max disk size = 256 terabytes
+    -> max file size = 256 terabytes
