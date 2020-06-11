@@ -1,0 +1,25 @@
+[BOOT SECTOR]
+DRIVE_CHAR                  A                               1 byte
+DRIVE_SIZE                  100000000 (bytes)               8 bytes
+CLUSTER_SIZE                256 (bytes)                     2 bytes
+FILENAME_LENGTH             32 (bytes)                      4 bytes
+
+USED_CLUSTERS               0 (clusters)                    8 bytes
+AVAILABLE_CLUSTERS          390625 (clusters)               8 bytes
+BOOT_SECTOR_SIZE            1 (cluster)                     2 bytes
+FAT_SECTOR_SIZE             ???                             8 bytes
+DFT_SECTOR_SIZE             ???                             8 bytes
+DATA_SECTOR_SIZE            ???                             8 bytes
+
+
+TOTAL SIZE                                                  57 bytes
+
+
+How many files do we want at maximum?
+How big do we want a file at maximum/can we support?
+
+NTFS
+    -> maximum files on disk = 4,294,967,296 => 2^32
+    -> maximum files in single folder = 4294967295 => 2^32
+    -> max disk size = 256 terabytes
+    -> max file size = 256 terabytes
